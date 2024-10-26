@@ -47,7 +47,7 @@
         <div id="root"></div>
         <script type="text/babel">
             const { useEffect, useState, useCallback, useRef } = React
-            const { Table, Tag, Select, Button, message, Slider, Icon, Tooltip } = antd
+            const { Table, Tag, Select, Button, message, Slider, Icon, Tooltip, InputNumber } = antd
             const MyApp = () => {
                 const [list, setLIist] = useState([])
                 const [time, setTime] = useState('4h')
@@ -55,6 +55,8 @@
                 const [options, setOptions] = useState({})
                 const [series, setSeries] = useState([])
                 const [seriesIndex, setSeriesIndex] = useState(-1)
+                const [spacingThreshold, setSpacingThreshold] = useState(localStorage.spacingThreshold || 0.7) //距离阈值
+                const [spacingSlopeld, setSpacingSlopeld] = useState(localStorage.spacingSlopeld || 5) //斜率长度
                 const chart = useRef(null)
                 const { Option } = Select
                 const { QuestionCircleOutlined } = icons
@@ -110,8 +112,6 @@
                 function checkTrend(ema21, ema55, ema100, ema200) {
                     const len = Math.min(ema21.length, ema55.length, ema100.length, ema200.length)
                     const lastIndex = len - 1
-                    const spacingThreshold = 0.7 // 距离阈值
-                    const spacingSlopeld = 5 // 斜率长度
                     // 计算最近收盘日的四条均线值
                     const [ema21Val, ema55Val, ema100Val, ema200Val] = [ema21[lastIndex], ema55[lastIndex], ema100[lastIndex], ema200[lastIndex]]
                     // 获取均线斜率
@@ -247,20 +247,18 @@
                     setOptions({
                         grid: {
                             top: 16,
-                            bottom: 50,
-                            left: 50,
-                            right: 50,
+                            bottom: 16,
+                            left: 16,
+                            right: 16,
                             containLabel: true
                         },
                         xAxis: {
                             type: 'category',
                             data: Array.from({ length: timeck() }, (_, i) => `T${i + 1}`),
-                            name: '时间点',
                             show: false
                         },
                         yAxis: {
                             type: 'value',
-                            name: '涨跌百分比 (%)',
                             axisLabel: {
                                 formatter: '{value} %'
                             }
@@ -333,9 +331,9 @@
                         <h3>图表是波动强弱数据直观体现，理论上波动越大机会越多，波动越小机会越少，这不绝对需自行筛选！</h3>
                         <h3>本工具只对币安的所有合约交易对进行初筛，过滤掉弱势标的，赚钱不赚钱是自己技术问题</h3>
                         <div className="button_box">
-                            <div>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
                                 时间周期：
-                                <Select defaultValue={time} style={{ width: '100px', marginBottom: 16 }} onChange={handleChange}>
+                                <Select defaultValue={time} style={{ width: '100px' }} onChange={handleChange}>
                                     <Option value="1h">1h</Option>
                                     <Option value="4h">4h</Option>
                                     <Option value="1d">1d</Option>
@@ -355,10 +353,31 @@
                                 />
                                 <span>{wave}%</span>
                             </div>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                距离阈值：
+                                <InputNumber
+                                    value={spacingThreshold}
+                                    onChange={(value) => {
+                                        setSpacingThreshold(value)
+                                        localStorage.setItem('spacingThreshold', value)
+                                    }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                斜率计算长度阈值：
+                                <InputNumber
+                                    value={spacingSlopeld}
+                                    onChange={(value) => {
+                                        setSpacingSlopeld(value)
+                                        localStorage.setItem('spacingSlopeld', value)
+                                    }}
+                                />
+                            </div>
                             <Button onClick={downloadTradingViewList}>下载tradingview自选列表文件</Button>
+                            <Button danger onClick={downloadTradingViewList}>重载</Button>
                         </div>
                         <div style={{ position: 'relative' }}>
-                            <div ref={chart} style={{ width: '100%', marginBottom: 16, height: 300 }}></div>
+                            <div ref={chart} style={{ width: '100%', marginBottom: 16, height: 400 }}></div>
                             {series.filter((j) => j.strength >= wave)[seriesIndex] && (
                                 <div className="tips">
                                     {series.filter((j) => j.strength >= wave)[seriesIndex].name + '：' + series.filter((j) => j.strength >= wave)[seriesIndex].strength.toFixed(2) + '%'}
