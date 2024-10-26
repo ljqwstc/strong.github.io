@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <title>筛选多空排列</title>
+        <!-- 引入axios -->
+        <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+        <!-- 引入react -->
+        <script src="./js/react.development.js"></script>
+        <script src="./js/react-dom.development.js"></script>
+        <script src="./js/babel.min.js"></script>
+        <script src="./js/antd.min.js"></script>
+        <script src="./js/index.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/echarts@5.3.0/dist/echarts.min.js"></script>
+        <!-- CSS -->
+        <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/antd/4.21.5/antd.css" />
+        <style>
+            .ant-table-thead > tr > th,
+            .ant-table-tbody > tr > td,
+            .ant-table tfoot > tr > th,
+            .ant-table tfoot > tr > td {
+                position: relative;
+                padding: 8px;
+                overflow-wrap: break-word;
+            }
+
+            .button_box {
+                display: flex;
+                justify-content: space-between;
+                justify-items: center;
+            }
+
+            .tips {
+                position: absolute;
+                background: #b9b9b9;
+                border: 1px solid #b9b9b9;
+                padding: 5px;
+                border-radius: 4px;
+                z-index: 999;
+                top: 18px;
+                right: 0;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="root"></div>
+        <script type="text/babel">
+            const { useEffect, useState, useCallback, useRef } = React
+            const { Table, Tag, Select, Button, message, Slider } = antd
+            const MyApp = () => {
+                const [list, setLIist] = useState([])
+                const [time, setTime] = useState('4h')
+                const [wave, setWave] = useState(30)
+                const [options, setOptions] = useState({})
+                const [series, setSeries] = useState([])
+                const [seriesIndex, setSeriesIndex] = useState(-1)
+                const chart = useRef(null)
+                const { Option } = Select
+                let chartDom = null
+
+                // 定义获取K线数据的函数
+                async function getKlineData(name) {
+                    const url = 'https://fapi.binance.com/fapi/v1/klines?symbol=' + name + '&interval=' + time + '&limit=500'
+                    const response = await axios.get(url)
+                    return response.data
+                }
+
+                // 获取可交易的交易对
+                async function getTradePairs() {
+                    const response1 = await axios.get('https://fapi.binance.com/fapi/v1/exchangeInfo')
+                    const response2 = await axios.get('https://fapi.binance.com/fapi/v1/ticker/24hr')
+                    const tradingPairs = response1.data.symbols.filter((symbol) => symbol.status === 'TRADING' && symbol.quoteAsset === 'USDT').map((symbol) => symbol.symbol)
+                    const tradingPairsChange = response2.data
+                        .filter((ticker) => tradingPairs.includes(ticker.symbol))
+                        .map((ticker) => ({
+                            symbol: ticker.symbol,
+                            priceChangePercent: ticker.priceChangePercent,
+                            volume: ticker.volume,
+                            quoteVolume: ticker.quoteVolume
+                        }))
+                        .sort((a, b) => b.priceChangePercent - a.priceChangePercent)
+                    return tradingPairsChange
+                }
+
+                // // 计算EMA函数
+                function calculateEMA(data, period) {
+                    const k = 2 / (period + 1)
+                    let emaArray = [data[0]] // 初始EMA值为第一个数据
+
+                    for (let i = 1; i < data.length; i++) {
+                        emaArray.push(data[i] * k + emaArray[i - 1] * (1 - k))
+                    }
+                    return emaArray
+                }
+
+                // 计算斜率
+                function calculateSlope(movingAverages, interval) {
+                    const len = movingAverages.length
+                    // if (len < interval + 1) {
+                    //   console.log("数据点不足以计算斜率");
+                    // }
+                    const recentValue = movingAverages[len - 1]
+                    const previousValue = movingAverages[len - 1 - interval]
+                    return (recentValue - previousValue) / interval
+                }
+
+                // 判断EMA排列
+                function checkTrend(ema21, ema55, ema100, ema200) {
+                    const len = Math.min(ema21.length, ema55.length, ema100.length, ema200.length)
+                    const lastIndex = len - 1
+                    const spacingThreshold = 0.7 // 距离阈值
+                    const spacingSlopeld = 5 // 斜率长度
+                    // 计算最近收盘日的四条均线值
+                    const [ema21Val, ema55Val, ema100Val, ema200Val] = [ema21[lastIndex], ema55[lastIndex], ema100[lastIndex], ema200[lastIndex]]
+                    // 获取均线斜率
+                    const ema21Slope = calculateSlope(ema21, spacingSlopeld)
+                    const ema55Slope = calculateSlope(ema55, spacingSlopeld)
+                    const ema100Slope = calculateSlope(ema100, spacingSlopeld)
+                    const ema200Slope = calculateSlope(ema200, spacingSlopeld)
+                    // 计算均线之间的距离
+                    const distance2155 = Math.abs((ema21Val - ema55Val) / ema55Val) * 100
+                    const distance55100 = Math.abs((ema55Val - ema100Val) / ema100Val) * 100
+                    const distance100200 = Math.abs((ema100Val - ema200Val) / ema200Val) * 100
+                    // 检查是否为多头排列（21EMA > 55EMA > 100EMA > 200EMA）
+                    if (
+                        ema21Val > ema55Val &&
+                        ema55Val > ema100Val &&
+                        ema100Val > ema200Val &&
+                        distance2155 > spacingThreshold &&
+                        distance55100 > spacingThreshold &&
+                        distance100200 > spacingThreshold &&
+                        ema21Slope > 0 &&
+                        ema55Slope > 0 &&
+                        ema100Slope > 0 &&
+                        ema200Slope > 0
+                    ) {
+                        return {
+                            res: '多头排列'
+                        }
+                    }
+                    if (
+                        ema21Val < ema55Val &&
+                        ema55Val < ema100Val &&
+                        ema100Val < ema200Val &&
+                        distance2155 > spacingThreshold &&
+                        distance55100 > spacingThreshold &&
+                        distance100200 > spacingThreshold &&
+                        ema21Slope < 0 &&
+                        ema55Slope < 0 &&
+                        ema100Slope < 0 &&
+                        ema200Slope < 0
+                    ) {
+                        return {
+                            res: '空头排列'
+                        }
+                    }
+                    return {
+                        res: '无明显多/空头排列'
+                    }
+                }
+
+                // 下载文件
+                function downloadTradingViewList(sybols) {
+                    const symbols = list.map((item) => `BINANCE:${item.name}.P`).join(',')
+                    const now = new Date()
+                    const formattedDate = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`
+                    const formattedTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
+                    const currentTime = `${formattedDate} ${formattedTime}`
+                    const blob = new Blob([symbols], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `多空排列自选列表${currentTime}.txt`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(url)
+                }
+
+                // 计算相对涨跌百分比
+                function calculatePercentageChanges(prices) {
+                    const basePrice = prices[0]
+                    return prices.map((price) => ((price - basePrice) / basePrice) * 100)
+                }
+
+                // 计算时间周期
+                function timeck() {
+                    if (time == '1h') {
+                        return 24 * 7
+                    } else if (time == '4h') {
+                        return (24 / 4) * 7
+                    } else {
+                        return 7
+                    }
+                }
+
+                async function formatData() {
+                    // 循环遍历所有主题
+                    const subjectMatter = await getTradePairs()
+                    const promises = await Promise.all(
+                        subjectMatter.map(async (item) => {
+                            const data = await getKlineData(item.symbol)
+                            const closePrices = data.map((item) => parseFloat(item[4]))
+                            // 计算不同周期的 EMA
+                            const ema21 = calculateEMA(closePrices, 21)
+                            const ema55 = calculateEMA(closePrices, 55)
+                            const ema100 = calculateEMA(closePrices, 100)
+                            const ema200 = calculateEMA(closePrices, 200)
+                            const trend = checkTrend(ema21, ema55, ema100, ema200)
+                            // if (trend.res == "多头排列" || trend.res == "空头排列") {
+                            const changes = calculatePercentageChanges(closePrices.slice(closePrices.length - timeck()))
+                            const maxChange = Math.max(...changes)
+                            const minChange = Math.min(...changes)
+                            setLIist((list) => [
+                                ...list,
+                                {
+                                    id: list.length + 1,
+                                    name: item.symbol,
+                                    trend: trend.res,
+                                    priceChangePercent: item.priceChangePercent,
+                                    quoteVolume: item.quoteVolume,
+                                    volume: item.volume
+                                }
+                            ])
+                            return {
+                                name: item.symbol,
+                                type: 'line',
+                                triggerLineEvent: true,
+                                data: changes,
+                                showSymbol: false,
+                                lineStyle: {
+                                    color: '#ccc', // 设置初始颜色为灰色
+                                    width: 3 // 设置线条宽度为1px
+                                },
+                                emphasis: {
+                                    focus: 'series'
+                                },
+                                lv: maxChange - minChange
+                            }
+                            // }
+                        })
+                    )
+                    const series = promises.filter((item) => item)
+                    setOptions({
+                        grid: {
+                            top: 16,
+                            bottom: 50,
+                            left: 50,
+                            right: 50,
+                            containLabel: true
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: Array.from({ length: timeck() }, (_, i) => `T${i + 1}`),
+                            name: '时间点',
+                            show: false
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '涨跌百分比 (%)',
+                            axisLabel: {
+                                formatter: '{value} %'
+                            }
+                        },
+                        series
+                    })
+                    setSeries(series)
+                }
+
+                // 自定义一个初始不更新的hook
+                const useUpdateEffect = (fn, inputs) => {
+                    const didMountRef = useRef(false)
+                    useEffect(() => {
+                        if (didMountRef.current) fn()
+                        else didMountRef.current = true
+                    }, inputs)
+                }
+
+                useUpdateEffect(() => {
+                    let option = JSON.parse(JSON.stringify(options))
+                    chartDom = echarts.init(chart.current)
+                    chartDom.setOption({
+                        ...option,
+                        series: series.filter((j) => j.lv > wave)
+                    })
+
+                    // 鼠标移入事件
+                    chartDom.on('mouseover', function (params) {
+                        setSeriesIndex(params.seriesIndex)
+                        options.series = chartDom.getOption().series
+                        options.series[params.seriesIndex].lineStyle.color = '#ff5733'
+                        chartDom.setOption(options)
+                    })
+
+                    // 鼠标移出事件
+                    chartDom.on('mouseout', function (params) {
+                        setSeriesIndex(-1)
+                        options.series = chartDom.getOption().series
+                        options.series[params.seriesIndex].lineStyle.color = '#ccc'
+                        chartDom.setOption(options)
+                    })
+                }, [options])
+
+                // 初始化
+                useEffect(() => {
+                    formatData()
+                }, [time])
+
+                function handleChange(value) {
+                    setLIist([])
+                    setTime(value)
+                }
+
+                function onSelect(value) {
+                    let option = JSON.parse(JSON.stringify(options))
+                    option = {
+                        ...option,
+                        series: series.filter((j) => j.lv >= value)
+                    }
+                    chartDom = echarts.init(chart.current)
+                    chartDom.setOption(option, true)
+                    setWave(value)
+                }
+                return (
+                    <div style={{ padding: 16 }}>
+                        <h3>此工具参考：均线斜率、均线相对百分比筛选</h3>
+                        <h3>代码中的spacingThreshold是距离阈值，阈值越高筛选出来的标的均线距离越宽，理论上多空头排列就越强</h3>
+                        <h3>温馨提示：筛选出来的标的需要自己进行二次筛选，需要盈亏比好，市值深度够，自己看得懂的做，别无脑，页面不要频繁刷新，币安接口每分钟有限制</h3>
+                        <h3>图表是波动强弱数据体现，波动越大赚钱机会越大，波动越小赚钱机会越小</h3>
+                        <div className="button_box">
+                            <div>
+                                时间周期：
+                                <Select defaultValue={time} style={{ width: '100px', marginBottom: 16 }} onChange={handleChange}>
+                                    <Option value="1h">1h</Option>
+                                    <Option value="4h">4h</Option>
+                                    <Option value="1d">1d</Option>
+                                </Select>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                图表波幅：
+                                <Slider
+                                    min={1}
+                                    max={100}
+                                    onChange={onSelect}
+                                    value={wave}
+                                    style={{ width: '200px' }}
+                                    tooltip={{
+                                        open: false
+                                    }}
+                                />
+                                <span>{wave}%</span>
+                            </div>
+                            <Button onClick={downloadTradingViewList}>下载tradingview自选列表文件</Button>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                            <div ref={chart} style={{ width: '100%', marginBottom: 16, height: 600 }}></div>
+                            {series.filter((j) => j.lv >= wave)[seriesIndex] && (
+                                <div className="tips">{series.filter((j) => j.lv >= wave)[seriesIndex].name + '：' + series.filter((j) => j.lv >= wave)[seriesIndex].lv.toFixed(2) + '%'}</div>
+                            )}
+                        </div>
+                        <Table
+                            bordered
+                            dataSource={list}
+                            columns={[
+                                {
+                                    title: '序号',
+                                    dataIndex: 'id',
+                                    key: 'id',
+                                    align: 'center',
+                                    filters: [
+                                        {
+                                            text: '多头排列',
+                                            value: '多头排列'
+                                        },
+                                        {
+                                            text: '空头排列',
+                                            value: '空头排列'
+                                        },
+                                        {
+                                            text: '无明显多/空头排列',
+                                            value: '无明显多/空头排列'
+                                        }
+                                    ],
+                                    defaultFilteredValue: ['多头排列'],
+                                    onFilter: (value, record) => record.trend.indexOf(value) === 0,
+                                    sortDirections: ['descend']
+                                },
+                                {
+                                    title: '币种',
+                                    dataIndex: 'name',
+                                    key: 'name',
+                                    align: 'center'
+                                },
+                                {
+                                    title: '24小时成交额(USDT)',
+                                    dataIndex: 'quoteVolume',
+                                    key: 'quoteVolume',
+                                    align: 'center'
+                                },
+                                {
+                                    title: '24小时成交量(币)',
+                                    dataIndex: 'volume',
+                                    key: 'volume',
+                                    align: 'center'
+                                },
+                                {
+                                    title: '涨幅',
+                                    dataIndex: 'priceChangePercent',
+                                    key: 'priceChangePercent',
+                                    align: 'center',
+                                    render: (text) => {
+                                        if (text < 0) {
+                                            return <Tag color="#f50">{text}%</Tag>
+                                        } else if (text > 0) {
+                                            return <Tag color="#87d068">{text}%</Tag>
+                                        } else {
+                                            return <Tag color="geekblue">{text}%</Tag>
+                                        }
+                                    }
+                                },
+                                {
+                                    title: '趋势',
+                                    dataIndex: 'trend',
+                                    key: 'trend',
+                                    align: 'center',
+                                    render: (text) => {
+                                        if (text === '多头排列') {
+                                            return <Tag color="green">{text}</Tag>
+                                        } else if (text === '空头排列') {
+                                            return <Tag color="red">{text}</Tag>
+                                        } else {
+                                            return <Tag color="magenta">{text}</Tag>
+                                        }
+                                    }
+                                }
+                            ]}
+                            pagination={false}
+                            rowKey={(rec, index) => index}
+                        />
+                    </div>
+                )
+            }
+            const container = document.getElementById('root')
+            const root = ReactDOM.createRoot(container)
+            root.render(<MyApp />)
+        </script>
+    </body>
+</html>
