@@ -47,7 +47,7 @@
         <div id="root"></div>
         <script type="text/babel">
             const { useEffect, useState, useCallback, useRef } = React
-            const { Table, Tag, Select, Button, message, Slider } = antd
+            const { Table, Tag, Select, Button, message, Slider, Icon, Tooltip } = antd
             const MyApp = () => {
                 const [list, setLIist] = useState([])
                 const [time, setTime] = useState('4h')
@@ -57,6 +57,7 @@
                 const [seriesIndex, setSeriesIndex] = useState(-1)
                 const chart = useRef(null)
                 const { Option } = Select
+                const { QuestionCircleOutlined } = icons
                 let chartDom = null
 
                 // 定义获取K线数据的函数
@@ -220,7 +221,8 @@
                                     trend: trend.res,
                                     priceChangePercent: item.priceChangePercent,
                                     quoteVolume: item.quoteVolume,
-                                    volume: item.volume
+                                    volume: item.volume,
+                                    strength: maxChange - minChange
                                 }
                             ])
                             return {
@@ -236,7 +238,7 @@
                                 emphasis: {
                                     focus: 'series'
                                 },
-                                lv: maxChange - minChange
+                                strength: maxChange - minChange
                             }
                             // }
                         })
@@ -282,7 +284,7 @@
                     chartDom = echarts.init(chart.current)
                     chartDom.setOption({
                         ...option,
-                        series: series.filter((j) => j.lv > wave)
+                        series: series.filter((j) => j.strength > wave)
                     })
 
                     // 鼠标移入事件
@@ -316,7 +318,7 @@
                     let option = JSON.parse(JSON.stringify(options))
                     option = {
                         ...option,
-                        series: series.filter((j) => j.lv >= value)
+                        series: series.filter((j) => j.strength >= value)
                     }
                     chartDom = echarts.init(chart.current)
                     chartDom.setOption(option, true)
@@ -326,8 +328,10 @@
                     <div style={{ padding: 16 }}>
                         <h3>此工具参考：均线斜率、均线相对百分比筛选</h3>
                         <h3>代码中的spacingThreshold是距离阈值，阈值越高筛选出来的标的均线距离越宽，理论上多空头排列就越强</h3>
-                        <h3>温馨提示：筛选出来的标的需要自己进行二次筛选，需要盈亏比好，市值深度够，自己看得懂的做，别无脑，页面不要频繁刷新，币安接口每分钟有限制</h3>
-                        <h3>图表是波动强弱数据体现，波动越大赚钱机会越大，波动越小赚钱机会越小</h3>
+                        <h3>温馨提示：</h3>
+                        <h3>筛选出来的标的需要自己进行二次筛选，需要盈亏比好，市值深度够，自己看得懂的做，别无脑，页面不要频繁刷新，币安接口每分钟有限制</h3>
+                        <h3>图表是波动强弱数据直观体现，理论上波动越大机会越多，波动越小机会越少，这不绝对需自行筛选！</h3>
+                        <h3>本工具只对币安的所有合约交易对进行初筛，过滤掉弱势标的，赚钱不赚钱是自己技术问题</h3>
                         <div className="button_box">
                             <div>
                                 时间周期：
@@ -338,7 +342,7 @@
                                 </Select>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center' }}>
-                                图表波幅：
+                                图表波幅阈值：
                                 <Slider
                                     min={1}
                                     max={100}
@@ -354,14 +358,17 @@
                             <Button onClick={downloadTradingViewList}>下载tradingview自选列表文件</Button>
                         </div>
                         <div style={{ position: 'relative' }}>
-                            <div ref={chart} style={{ width: '100%', marginBottom: 16, height: 600 }}></div>
-                            {series.filter((j) => j.lv >= wave)[seriesIndex] && (
-                                <div className="tips">{series.filter((j) => j.lv >= wave)[seriesIndex].name + '：' + series.filter((j) => j.lv >= wave)[seriesIndex].lv.toFixed(2) + '%'}</div>
+                            <div ref={chart} style={{ width: '100%', marginBottom: 16, height: 300 }}></div>
+                            {series.filter((j) => j.strength >= wave)[seriesIndex] && (
+                                <div className="tips">
+                                    {series.filter((j) => j.strength >= wave)[seriesIndex].name + '：' + series.filter((j) => j.strength >= wave)[seriesIndex].strength.toFixed(2) + '%'}
+                                </div>
                             )}
                         </div>
                         <Table
                             bordered
                             dataSource={list}
+                            key={wave}
                             columns={[
                                 {
                                     title: '序号',
@@ -380,10 +387,30 @@
                                         {
                                             text: '无明显多/空头排列',
                                             value: '无明显多/空头排列'
+                                        },
+                                        {
+                                            text: '波幅强弱标的',
+                                            value: '波幅强弱标的'
+                                        },
+                                        {
+                                            text: '波幅强并多空排列',
+                                            value: '波幅强并多空排列'
                                         }
                                     ],
-                                    defaultFilteredValue: ['多头排列'],
-                                    onFilter: (value, record) => record.trend.indexOf(value) === 0,
+                                    defaultFilteredValue: ['波幅强并多空排列'],
+                                    onFilter: (value, record) => {
+                                        if (value === '多头排列') {
+                                            return record.trend === '多头排列'
+                                        } else if (value === '空头排列') {
+                                            return record.trend === '空头排列'
+                                        } else if (value === '无明显多/空头排列') {
+                                            return record.trend === '无明显多/空头排列'
+                                        } else if (value === '波幅强弱标的') {
+                                            return record.strength >= wave
+                                        } else if (value === '波幅强并多空排列') {
+                                            return record.strength >= wave && (record.trend === '多头排列' || record.trend === '空头排列')
+                                        }
+                                    },
                                     sortDirections: ['descend']
                                 },
                                 {
@@ -403,6 +430,26 @@
                                     dataIndex: 'volume',
                                     key: 'volume',
                                     align: 'center'
+                                },
+                                {
+                                    title: () => (
+                                        <Tooltip title="大于波幅阈值都属于强，根据自己的条件来">
+                                            <span>
+                                                强弱波幅&nbsp;
+                                                <QuestionCircleOutlined />
+                                            </span>
+                                        </Tooltip>
+                                    ),
+                                    dataIndex: 'strength',
+                                    key: 'strength',
+                                    align: 'center',
+                                    render: (text) => {
+                                        return (
+                                            <div>
+                                                <Tag color={text >= wave ? '#87d068' : '#f50'}>{text >= wave ? '强' : '弱'}</Tag>
+                                            </div>
+                                        )
+                                    }
                                 },
                                 {
                                     title: '涨幅',
